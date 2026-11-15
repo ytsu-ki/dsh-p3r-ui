@@ -14,6 +14,8 @@
   var LOOP_URL = "/p3r-skin/loop.mp4?v=fv2_60fps_v1";
   var BOOT_URL = "/p3r-skin/boot-state";
   var INTRO_START_SEC = 0.92;
+  var MAX_PANEL_ALPHA = 0.92;
+  var MAX_BLUR_PX = 24;
 
   var customPos = { dock: null, wallet: null };
   try {
@@ -64,10 +66,10 @@
         if (typeof parsed.btnFx === "boolean") cfg.btnFx = parsed.btnFx;
         if (typeof parsed.btnSfx === "boolean") cfg.btnSfx = parsed.btnSfx;
         if (typeof parsed.panelAlpha === "number" && isFinite(parsed.panelAlpha)) {
-          cfg.panelAlpha = Math.max(0, Math.min(0.95, parsed.panelAlpha));
+          cfg.panelAlpha = Math.max(0, Math.min(MAX_PANEL_ALPHA, parsed.panelAlpha));
         }
         if (typeof parsed.blurPx === "number" && isFinite(parsed.blurPx)) {
-          cfg.blurPx = Math.max(0, Math.min(28, parsed.blurPx));
+          cfg.blurPx = Math.max(0, Math.min(MAX_BLUR_PX, Math.round(parsed.blurPx)));
         }
       }
     }
@@ -416,7 +418,12 @@
     }
 
     assignVideoSrc(introVid, INTRO_URL, function () {
-      if (introVid.readyState >= 1) {
+      if (introVid.error) {
+        // Source already failed (e.g. no optional intro clip installed): the
+        // element will not fire "error" again, so hand off right away instead
+        // of leaving the backdrop paused until the watchdog fires.
+        switchToLoop(true);
+      } else if (introVid.readyState >= 1) {
         startAtDive();
       } else {
         introVid.addEventListener("loadedmetadata", startAtDive, { once: true });
@@ -429,8 +436,14 @@
     }, 8500);
   }
 
+  var videoLifecycleStarted = false;
+  var manualIntroRequested = false;
+
+  // Started lazily the first time the skin is enabled, so a disabled skin never
+  // downloads the backdrop videos into memory.
   function initVideoLifecycle() {
-    if (!loopVid || !introVid) return;
+    if (videoLifecycleStarted || !loopVid || !introVid) return;
+    videoLifecycleStarted = true;
 
     introVid.addEventListener("ended", function () {
       switchToLoop(false);
@@ -457,8 +470,12 @@
         return res.json();
       })
       .then(function (data) {
+        if (manualIntroRequested) return;
         var played = Boolean(data && data.introPlayed);
-        if (!played) {
+        if (data && data.hasIntro === false) {
+          // Host reports no intro clip installed: skip the doomed request.
+          switchToLoop(true);
+        } else if (!played) {
           fetch(BOOT_URL, { method: "POST", cache: "no-store" }).catch(function () {});
           try {
             if (data && data.bootId) sessionStorage.setItem("p3r_dsh_boot_id", data.bootId);
@@ -469,6 +486,7 @@
         }
       })
       .catch(function () {
+        if (manualIntroRequested) return;
         // Fallback when opened without host route
         var seen = false;
         try { seen = sessionStorage.getItem("p3r_dsh_intro_seen") === "1"; } catch (e) {}
@@ -487,7 +505,6 @@
   var glassScheduled = false;
   var glassTimer = 0;
   var lastGlassPassTs = 0;
-  var applyingGlassPass = false;
   var detectedDark = false;
 
   function isFrameAnimating() {
@@ -811,155 +828,150 @@
     var root = document.getElementById("root") || document.getElementById("app") || document.body;
     if (!root) return;
 
-    applyingGlassPass = true;
-    try {
-      detectedDark = detectThemeDark();
-      syncModalOpenState();
-      syncGlassCssVars();
-      ensureP3rBrandLockup();
-      markChatBubbles(root);
+    detectedDark = detectThemeDark();
+    syncModalOpenState();
+    syncGlassCssVars();
+    ensureP3rBrandLockup();
+    markChatBubbles(root);
 
-      var vw = window.innerWidth || 1280;
-      var vh = window.innerHeight || 800;
-      var nodes = root.querySelectorAll("div, aside, main, section, nav, header, footer");
-      var limit = Math.min(nodes.length, 2400);
+    var vw = window.innerWidth || 1280;
+    var vh = window.innerHeight || 800;
+    var nodes = root.querySelectorAll("div, aside, main, section, nav, header, footer");
+    var limit = Math.min(nodes.length, 2400);
 
-      var sidebarColSel = "[class$='_sidebarCol'],[class*='_sidebarCol '],[class*='_sidebarCol_']";
-      var sessionColSel = "[class$='_centerCol'],[class*='_centerCol '],[class*='_centerCol_'],[class$='_rightbarCol'],[class*='_rightbarCol '],[class*='_rightbarCol_']";
-      var pendingRegions = new WeakMap();
-      var regionWrites = [];
-      var datasetWrites = [];
+    var sidebarColSel = "[class$='_sidebarCol'],[class*='_sidebarCol '],[class*='_sidebarCol_']";
+    var sessionColSel = "[class$='_centerCol'],[class*='_centerCol '],[class*='_centerCol_'],[class$='_rightbarCol'],[class*='_rightbarCol '],[class*='_rightbarCol_']";
+    var pendingRegions = new WeakMap();
+    var regionWrites = [];
+    var datasetWrites = [];
 
-      for (var i = 0; i < limit; i++) {
-        var el = nodes[i];
-        var hadRegion = el.getAttribute("data-p3r-region");
-        if (isExcludedOverlay(el) || el.closest("pre, code, .cm-editor, .xterm, .katex, [data-p3r-bubble]")) {
-          if (hadRegion) {
-            pendingRegions.set(el, null);
-            regionWrites.push({ el: el, region: null });
-          }
-          continue;
-        }
-
-        var clsStr = typeof el.className === "string" ? el.className : "";
-        if (/_sidebarCol(?:\b|_)|_centerCol(?:\b|_)|_rightbarCol(?:\b|_)|_bottomRow(?:\b|_)|_frame(?:\b|_)|_mainPanel(?:\b|_)|_tabHost_|_emptyTabHost_/.test(clsStr)) {
-          continue;
-        }
-
-        var rect = el.getBoundingClientRect();
-        if (rect.width < 44 || rect.height < 36) {
-          if (hadRegion) {
-            pendingRegions.set(el, null);
-            regionWrites.push({ el: el, region: null });
-          }
-          continue;
-        }
-
-        var origBg = el.dataset.p3rOrigBg;
-        var origGrad = el.dataset.p3rOrigGrad;
-        if (!origBg) {
-          var cs = getComputedStyle(el);
-          var c = parseRgb(cs.backgroundColor);
-          var hasGrad = cs.backgroundImage && cs.backgroundImage !== "none";
-          if ((!c || c.a < 0.25) && !hasGrad) continue;
-          origBg = cs.backgroundColor;
-          origGrad = hasGrad ? "1" : "0";
-          datasetWrites.push({ el: el, bg: origBg, grad: origGrad });
-        }
-
-        var base = parseRgb(origBg);
-        if (base && base.a >= 0.25) {
-          var sat = Math.max(base.r, base.g, base.b) - Math.min(base.r, base.g, base.b);
-          if (sat > 44 && rect.width < vw * 0.42 && rect.height < vh * 0.42) continue;
-        }
-
-        var nextRegion = null;
-
-        if (
-          (el.tagName !== "MAIN" && rect.width >= vw * 0.94 && rect.height >= vh * 0.92) ||
-          (rect.top <= 4 && rect.width >= vw * 0.82 && rect.height <= 72)
-        ) {
-          nextRegion = "outer";
-        } else {
-          var inSidebarZone =
-            Boolean(el.closest(sidebarColSel)) ||
-            (rect.left <= 24 &&
-              rect.right <= Math.max(460, vw * 0.44) &&
-              (Boolean(el.closest("aside, nav")) || rect.height >= vh * 0.3 || rect.width >= 48));
-
-          if (inSidebarZone) {
-            if (hasAncestorRegion(el, "sidebar-surface", sidebarColSel, pendingRegions)) {
-              if (rect.height >= 40 && (rect.width >= 100 || el.tagName === "HEADER" || el.tagName === "FOOTER" || el.scrollHeight > el.clientHeight + 16)) {
-                nextRegion = "sidebar-inner";
-              }
-            } else if (
-              el.tagName === "ASIDE" ||
-              el.tagName === "NAV" ||
-              rect.height >= vh * 0.35 ||
-              rect.width >= 48
-            ) {
-              nextRegion = "sidebar-surface";
-            }
-          } else if (rect.width >= 150 && rect.height >= 42) {
-            var isComposerContainer = /_composer(?:Seat|Stack|Hero)(?:\b|_)|_page(?:Bar|Head)|_compactionButton/.test(clsStr);
-            if (!isComposerContainer) {
-              var isSessionCard =
-                !el.closest("[class*='_rightbarCol']") &&
-                (/_card(?:\b|_)/.test(clsStr) ||
-                  (rect.height <= vh * 0.48 &&
-                    Boolean(el.querySelector("textarea, [contenteditable='true']")) &&
-                    !el.querySelector("[class*='_scrollBody']")));
-              if (isSessionCard) {
-                nextRegion = "session-card";
-              } else if (hasAncestorRegion(el, "session-surface", sessionColSel, pendingRegions)) {
-                var isStructuralChild =
-                  rect.height >= vh * 0.28 ||
-                  rect.width >= vw * 0.4 ||
-                  el.tagName === "MAIN" ||
-                  el.tagName === "SECTION" ||
-                  el.tagName === "HEADER" ||
-                  el.tagName === "FOOTER" ||
-                  el.scrollHeight > el.clientHeight + 20;
-                if (isStructuralChild) {
-                  nextRegion = "session-inner";
-                }
-              } else if (
-                rect.height >= vh * 0.38 ||
-                el.tagName === "MAIN" ||
-                el.tagName === "HEADER"
-              ) {
-                nextRegion = "session-surface";
-              }
-            }
-          }
-        }
-
-        pendingRegions.set(el, nextRegion);
-        if (nextRegion && hadRegion !== nextRegion) {
-          regionWrites.push({ el: el, region: nextRegion });
-        } else if (!nextRegion && hadRegion) {
+    for (var i = 0; i < limit; i++) {
+      var el = nodes[i];
+      var hadRegion = el.getAttribute("data-p3r-region");
+      if (isExcludedOverlay(el) || el.closest("pre, code, .cm-editor, .xterm, .katex, [data-p3r-bubble]")) {
+        if (hadRegion) {
+          pendingRegions.set(el, null);
           regionWrites.push({ el: el, region: null });
         }
+        continue;
       }
 
-      for (var d = 0; d < datasetWrites.length; d++) {
-        datasetWrites[d].el.dataset.p3rOrigBg = datasetWrites[d].bg;
-        datasetWrites[d].el.dataset.p3rOrigGrad = datasetWrites[d].grad;
+      var clsStr = typeof el.className === "string" ? el.className : "";
+      if (/_sidebarCol(?:\b|_)|_centerCol(?:\b|_)|_rightbarCol(?:\b|_)|_bottomRow(?:\b|_)|_frame(?:\b|_)|_mainPanel(?:\b|_)|_tabHost_|_emptyTabHost_/.test(clsStr)) {
+        continue;
       }
-      for (var w = 0; w < regionWrites.length; w++) {
-        if (regionWrites[w].region) {
-          regionWrites[w].el.setAttribute("data-p3r-region", regionWrites[w].region);
-        } else {
-          regionWrites[w].el.removeAttribute("data-p3r-region");
+
+      var rect = el.getBoundingClientRect();
+      if (rect.width < 44 || rect.height < 36) {
+        if (hadRegion) {
+          pendingRegions.set(el, null);
+          regionWrites.push({ el: el, region: null });
+        }
+        continue;
+      }
+
+      var origBg = el.dataset.p3rOrigBg;
+      var origGrad = el.dataset.p3rOrigGrad;
+      if (!origBg) {
+        var cs = getComputedStyle(el);
+        var c = parseRgb(cs.backgroundColor);
+        var hasGrad = cs.backgroundImage && cs.backgroundImage !== "none";
+        if ((!c || c.a < 0.25) && !hasGrad) continue;
+        origBg = cs.backgroundColor;
+        origGrad = hasGrad ? "1" : "0";
+        datasetWrites.push({ el: el, bg: origBg, grad: origGrad });
+      }
+
+      var base = parseRgb(origBg);
+      if (base && base.a >= 0.25) {
+        var sat = Math.max(base.r, base.g, base.b) - Math.min(base.r, base.g, base.b);
+        if (sat > 44 && rect.width < vw * 0.42 && rect.height < vh * 0.42) continue;
+      }
+
+      var nextRegion = null;
+
+      if (
+        (el.tagName !== "MAIN" && rect.width >= vw * 0.94 && rect.height >= vh * 0.92) ||
+        (rect.top <= 4 && rect.width >= vw * 0.82 && rect.height <= 72)
+      ) {
+        nextRegion = "outer";
+      } else {
+        var inSidebarZone =
+          Boolean(el.closest(sidebarColSel)) ||
+          (rect.left <= 24 &&
+            rect.right <= Math.max(460, vw * 0.44) &&
+            (Boolean(el.closest("aside, nav")) || rect.height >= vh * 0.3 || rect.width >= 48));
+
+        if (inSidebarZone) {
+          if (hasAncestorRegion(el, "sidebar-surface", sidebarColSel, pendingRegions)) {
+            if (rect.height >= 40 && (rect.width >= 100 || el.tagName === "HEADER" || el.tagName === "FOOTER" || el.scrollHeight > el.clientHeight + 16)) {
+              nextRegion = "sidebar-inner";
+            }
+          } else if (
+            el.tagName === "ASIDE" ||
+            el.tagName === "NAV" ||
+            rect.height >= vh * 0.35 ||
+            rect.width >= 48
+          ) {
+            nextRegion = "sidebar-surface";
+          }
+        } else if (rect.width >= 150 && rect.height >= 42) {
+          var isComposerContainer = /_composer(?:Seat|Stack|Hero)(?:\b|_)|_page(?:Bar|Head)|_compactionButton/.test(clsStr);
+          if (!isComposerContainer) {
+            var isSessionCard =
+              !el.closest("[class*='_rightbarCol']") &&
+              (/_card(?:\b|_)/.test(clsStr) ||
+                (rect.height <= vh * 0.48 &&
+                  Boolean(el.querySelector("textarea, [contenteditable='true']")) &&
+                  !el.querySelector("[class*='_scrollBody']")));
+            if (isSessionCard) {
+              nextRegion = "session-card";
+            } else if (hasAncestorRegion(el, "session-surface", sessionColSel, pendingRegions)) {
+              var isStructuralChild =
+                rect.height >= vh * 0.28 ||
+                rect.width >= vw * 0.4 ||
+                el.tagName === "MAIN" ||
+                el.tagName === "SECTION" ||
+                el.tagName === "HEADER" ||
+                el.tagName === "FOOTER" ||
+                el.scrollHeight > el.clientHeight + 20;
+              if (isStructuralChild) {
+                nextRegion = "session-inner";
+              }
+            } else if (
+              rect.height >= vh * 0.38 ||
+              el.tagName === "MAIN" ||
+              el.tagName === "HEADER"
+            ) {
+              nextRegion = "session-surface";
+            }
+          }
         }
       }
 
-      markP3rEnglishUi(root);
-      positionOverlayWidgets();
-      lastGlassPassTs = performance.now();
-    } finally {
-      applyingGlassPass = false;
+      pendingRegions.set(el, nextRegion);
+      if (nextRegion && hadRegion !== nextRegion) {
+        regionWrites.push({ el: el, region: nextRegion });
+      } else if (!nextRegion && hadRegion) {
+        regionWrites.push({ el: el, region: null });
+      }
     }
+
+    for (var d = 0; d < datasetWrites.length; d++) {
+      datasetWrites[d].el.dataset.p3rOrigBg = datasetWrites[d].bg;
+      datasetWrites[d].el.dataset.p3rOrigGrad = datasetWrites[d].grad;
+    }
+    for (var w = 0; w < regionWrites.length; w++) {
+      if (regionWrites[w].region) {
+        regionWrites[w].el.setAttribute("data-p3r-region", regionWrites[w].region);
+      } else {
+        regionWrites[w].el.removeAttribute("data-p3r-region");
+      }
+    }
+
+    markP3rEnglishUi(root);
+    positionOverlayWidgets();
+    lastGlassPassTs = performance.now();
   }
 
   function scheduleGlassPass(deferAfterAnim) {
@@ -1177,7 +1189,8 @@
     if (code === "USD") return "$";
     if (code === "EUR") return "€";
     if (code === "GBP") return "£";
-    return "¥";
+    if (code === "CNY" || code === "JPY") return "¥";
+    return /^[A-Z]{3}$/.test(code) ? code + " " : "¥";
   }
 
   function formatWalletAmount(num) {
@@ -1675,6 +1688,7 @@
     positionOverlayWidgets();
 
     if (cfg.enabled) {
+      initVideoLifecycle();
       if (handoffDone) {
         if (loopVid && loopVid.paused) safePlay(loopVid);
       } else if (introVid && introVid.style.display !== "none" && introVid.paused) {
@@ -1749,11 +1763,11 @@
       buildSwitchRow("btnSfx", "p3r-chk-btn-sfx") +
       '  <div class="p3r-slider-wrap">' +
       '    <div class="p3r-slider-head"><span data-p3r-i18n="glassOpacity">' + tr("glassOpacity") + '</span><b id="p3r-alpha-val">48%</b></div>' +
-      '    <input type="range" id="p3r-rng-alpha" min="0" max="0.92" step="0.01">' +
+      '    <input type="range" id="p3r-rng-alpha" min="0" max="' + MAX_PANEL_ALPHA + '" step="0.01">' +
       "  </div>" +
       '  <div class="p3r-slider-wrap">' +
       '    <div class="p3r-slider-head"><span data-p3r-i18n="blurStrength">' + tr("blurStrength") + '</span><b id="p3r-blur-val">14px</b></div>' +
-      '    <input type="range" id="p3r-rng-blur" min="0" max="24" step="1">' +
+      '    <input type="range" id="p3r-rng-blur" min="0" max="' + MAX_BLUR_PX + '" step="1">' +
       "  </div>" +
       '  <div class="p3r-btn-row">' +
       '    <button type="button" class="p3r-mini-btn primary" id="p3r-btn-peek"><span>' + tr("peek") + '</span></button>' +
@@ -1927,6 +1941,7 @@
         saveCfg();
         syncStateToDom();
       }
+      manualIntroRequested = true;
       playIntroSequence();
     });
 
@@ -1934,7 +1949,6 @@
       applyI18n(false);
     });
 
-    initVideoLifecycle();
     syncStateToDom();
     applyI18n(true);
 
@@ -1948,11 +1962,12 @@
       });
     });
 
+    var localeTimer = 0;
     var observer = new MutationObserver(function (mutations) {
-      if (applyingGlassPass) return;
       var needsPass = false;
       var animEnded = false;
       var localeDirty = false;
+      var domLocaleDirty = false;
       for (var i = 0; i < mutations.length; i++) {
         var m = mutations[i];
         if (m.type === "attributes") {
@@ -1969,10 +1984,19 @@
           var mt = m.target && m.target.nodeType === 3 ? m.target.parentElement : m.target;
           if (mt && mt.closest && (mt.closest("#p3r-dsh-dock") || mt.closest("#p3r-fx-layer") || mt.closest("#p3r-dsh-wallet") || mt.closest("#p3r-dsh-stage") || mt.closest("[data-p3r-brand]"))) continue;
           needsPass = true;
-          localeDirty = true;
+          domLocaleDirty = true;
         }
       }
       if (localeDirty) applyI18n(false);
+      // Content mutations (e.g. streamed chat text) only matter for language
+      // detection when the host locale bridge is absent, and then at most
+      // twice a second.
+      if (domLocaleDirty && !window.__P3R_DSH_LOCALE__ && !localeTimer) {
+        localeTimer = setTimeout(function () {
+          localeTimer = 0;
+          applyI18n(false);
+        }, 500);
+      }
       if (animEnded) {
         if (glassTimer) {
           clearTimeout(glassTimer);

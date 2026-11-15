@@ -56,8 +56,9 @@
   ],
   "scripts": {
     "build": "node ./scripts/build.mjs",
-    "check": "node --check index.js && node --check client/locale-bridge.js && node --check src/skin-runtime.js && node --check dist/p3r-skin.js",
-    "prepack": "npm run build && npm run check"
+    "check": "node --check index.js && node --check client/locale-bridge.js && node --check src/skin-runtime.js && node --check dist/p3r-skin.js && node ./scripts/build.mjs --check",
+    "test": "node --test",
+    "prepack": "npm run build && npm run check && npm test"
   },
   "dsh": {
     "bundle": {

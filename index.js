@@ -24,7 +24,7 @@ function resolveFirstExisting(candidates) {
   return null;
 }
 
-function isLoopbackHostHeader(hostHeader) {
+export function isLoopbackHostHeader(hostHeader) {
   try {
     const u = new URL('http://' + String(hostHeader || ''));
     const h = u.hostname.toLowerCase().replace(/^\[/, '').replace(/\]$/, '');
@@ -36,9 +36,13 @@ function isLoopbackHostHeader(hostHeader) {
   }
 }
 
-function rejectIfUntrusted(req, res, ctx) {
+export function rejectIfUntrusted(req, res, ctx) {
   const headers = (req && req.headers) || {};
-  if (String(headers['sec-fetch-site'] || '').toLowerCase() === 'cross-site') {
+  // The runtime only ever issues same-origin requests (relative URLs), so any
+  // other browser-declared relationship ("cross-site" and also "same-site",
+  // e.g. another localhost port) is refused. Absent header = non-browser client.
+  const fetchSite = String(headers['sec-fetch-site'] || '').toLowerCase();
+  if (fetchSite && fetchSite !== 'same-origin' && fetchSite !== 'none') {
     res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
     res.end('forbidden');
     return true;
@@ -75,7 +79,41 @@ function rejectIfUntrusted(req, res, ctx) {
   return false;
 }
 
-function parseByteRange(rangeHeader, totalSize) {
+const HARDEN_HEADERS = {
+  'X-Content-Type-Options': 'nosniff',
+  'Cross-Origin-Resource-Policy': 'same-origin',
+};
+
+function sendJson(res, status, payload, extraHeaders) {
+  const body = JSON.stringify(payload);
+  res.writeHead(status, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store',
+    'Content-Length': String(Buffer.byteLength(body)),
+    ...HARDEN_HEADERS,
+    ...extraHeaders,
+  });
+  res.end(body);
+}
+
+function rejectMethod(req, res, allowed) {
+  const method = String(req.method || 'GET').toUpperCase();
+  if (allowed.includes(method)) return null;
+  res.writeHead(405, { Allow: allowed.join(', '), 'Cache-Control': 'no-store' });
+  res.end('method not allowed');
+  return method;
+}
+
+function pipeFile(res, stream) {
+  // Headers are already on the wire here, so a mid-stream read failure can only
+  // be signalled by tearing the connection down (a clean end() would look like
+  // a complete, truncated body).
+  stream.on('error', () => res.destroy());
+  res.on('close', () => stream.destroy());
+  stream.pipe(res);
+}
+
+export function parseByteRange(rangeHeader, totalSize) {
   const m = /^bytes=(\d*)-(\d*)$/i.exec(String(rangeHeader || '').trim());
   if (!m) return null;
   const rawStart = m[1];
@@ -127,6 +165,7 @@ async function serveMp4(req, res, filePath) {
   }
 
   const baseHeaders = {
+    ...HARDEN_HEADERS,
     'Content-Type': 'video/mp4',
     'Accept-Ranges': 'bytes',
     'Cache-Control': 'no-cache',
@@ -151,13 +190,7 @@ async function serveMp4(req, res, filePath) {
         res.end();
         return;
       }
-      const stream = createReadStream(filePath, { start: parsed.start, end: parsed.end });
-      stream.on('error', () => {
-        if (!res.headersSent) res.writeHead(500);
-        res.end();
-      });
-      res.on('close', () => stream.destroy());
-      stream.pipe(res);
+      pipeFile(res, createReadStream(filePath, { start: parsed.start, end: parsed.end }));
       return;
     }
   }
@@ -170,13 +203,7 @@ async function serveMp4(req, res, filePath) {
     res.end();
     return;
   }
-  const stream = createReadStream(filePath);
-  stream.on('error', () => {
-    if (!res.headersSent) res.writeHead(500);
-    res.end();
-  });
-  res.on('close', () => stream.destroy());
-  stream.pipe(res);
+  pipeFile(res, createReadStream(filePath));
 }
 
 async function servePng(req, res, filePath) {
@@ -201,6 +228,7 @@ async function servePng(req, res, filePath) {
     }
     const buf = method === 'HEAD' ? null : await readFile(filePath);
     res.writeHead(200, {
+      ...HARDEN_HEADERS,
       'Content-Type': 'image/png',
       'Cache-Control': 'public, max-age=3600',
       ETag: etag,
@@ -215,10 +243,14 @@ async function servePng(req, res, filePath) {
   }
 }
 
+const WALLET_CACHE_MS = 12000;
+const WALLET_FORCE_MIN_MS = 3000;
+const WALLET_UPSTREAM_TIMEOUT_MS = 8000;
 let walletCache = null;
 let walletCacheAt = 0;
+let walletInflight = null;
 
-function pickCurrencyWallets(normalWallets, bonusWallets) {
+export function pickCurrencyWallets(normalWallets, bonusWallets) {
   const normals = Array.isArray(normalWallets) ? normalWallets : [];
   const bonuses = Array.isArray(bonusWallets) ? bonusWallets : [];
   const all = normals.concat(bonuses);
@@ -268,11 +300,24 @@ async function readDshwUsageFallback() {
   return null;
 }
 
-async function readWalletSummary(ctx, force) {
-  const now = Date.now();
-  if (!force && walletCache && now - walletCacheAt < 12000) {
-    return walletCache;
+function readWalletSummary(ctx, force) {
+  // `force` only shortens the cache window; it can never trigger more than one
+  // upstream balance call per WALLET_FORCE_MIN_MS, and concurrent callers share
+  // a single in-flight lookup.
+  const maxAge = force ? WALLET_FORCE_MIN_MS : WALLET_CACHE_MS;
+  if (walletCache && Date.now() - walletCacheAt < maxAge) {
+    return Promise.resolve(walletCache);
   }
+  if (!walletInflight) {
+    walletInflight = loadWalletSummary(ctx).finally(() => {
+      walletInflight = null;
+    });
+  }
+  return walletInflight;
+}
+
+async function loadWalletSummary(ctx) {
+  const now = Date.now();
 
   try {
     const acct = ctx && typeof ctx.get === 'function' ? ctx.get('deepseekAccount') : null;
@@ -282,10 +327,13 @@ async function readWalletSummary(ctx, force) {
         locale: 'zh-CN',
         timezoneOffsetSeconds: -new Date().getTimezoneOffset() * 60,
       };
+      let timer;
       const res = await Promise.race([
         acct.getBalance(clientMeta),
-        new Promise((resolve) => setTimeout(() => resolve(null), 8000)),
-      ]);
+        new Promise((resolve) => {
+          timer = setTimeout(() => resolve(null), WALLET_UPSTREAM_TIMEOUT_MS);
+        }),
+      ]).finally(() => clearTimeout(timer));
       if (res && res.status === 'ready') {
         const picked = pickCurrencyWallets(res.value, res.bonusWallets);
         walletCache = {
@@ -319,11 +367,15 @@ async function readWalletSummary(ctx, force) {
 export function apply(ctx) {
   const bootState = getBootState();
 
+  let skinScript = null;
   try {
     const text = readFileSync(new URL('./dist/p3r-skin.js', import.meta.url), 'utf8');
-    if (!text.trim() || /<\/script/i.test(text)) {
+    // `</script` would close the inline tag; `<!--` can flip the HTML parser
+    // into the script-data escaped states. Neither may appear in inline JS.
+    if (!text.trim() || /<\/script|<!--/i.test(text)) {
       throw new Error('Invalid p3r-skin runtime script');
     }
+    skinScript = text;
     const disposeInject = ctx.on('webserver/index-inject', (table) => {
       if (!Array.isArray(table)) return;
       if (table.some((row) => row && row.id === 'p3r-dsh-skin-inline')) return;
@@ -344,19 +396,15 @@ export function apply(ctx) {
   }
 
   ctx.inject(['webServer'], (scoped) => {
+    // Media is only ever resolved inside this package's own assets/ directory.
     const introPath = resolveFirstExisting([
-      new URL('../menu-clean-4k60-h264.mp4', import.meta.url),
       new URL('./assets/menu-clean-4k60-h264.mp4', import.meta.url),
-      new URL('../menu-clean-h264.mp4', import.meta.url),
       new URL('./assets/menu-clean-h264.mp4', import.meta.url),
     ]);
     const loopPath = resolveFirstExisting([
       new URL('./assets/menu-loop-fv2-60fps-h264.mp4', import.meta.url),
-      new URL('../fv2-60fps.mp4', import.meta.url),
       new URL('./assets/menu-loop-4k60-h264.mp4', import.meta.url),
-      new URL('../menu-clean-4k60-h264.mp4', import.meta.url),
       new URL('./assets/menu-loop-h264.mp4', import.meta.url),
-      new URL('../menu-clean-h264.mp4', import.meta.url),
     ]);
     const makotoAvatarPath = resolveFirstExisting([
       new URL('./assets/makoto-avatar.png', import.meta.url),
@@ -399,20 +447,15 @@ export function apply(ctx) {
         path: '/p3r-skin/boot-state',
         handler: (req, res) => {
           if (rejectIfUntrusted(req, res, ctx)) return;
-          const method = String(req.method || 'GET').toUpperCase();
-          if (method === 'POST') {
+          if (rejectMethod(req, res, ['GET', 'POST'])) return;
+          if (String(req.method || 'GET').toUpperCase() === 'POST') {
             bootState.introPlayed = true;
           }
-          const body = JSON.stringify({
+          sendJson(res, 200, {
             bootId: bootState.bootId,
             introPlayed: bootState.introPlayed,
+            hasIntro: Boolean(introPath),
           });
-          res.writeHead(200, {
-            'Content-Type': 'application/json; charset=utf-8',
-            'Cache-Control': 'no-store',
-            'Content-Length': String(Buffer.byteLength(body)),
-          });
-          res.end(body);
         },
       })
     );
@@ -422,15 +465,12 @@ export function apply(ctx) {
         path: '/p3r-skin/wallet.json',
         handler: async (req, res) => {
           if (rejectIfUntrusted(req, res, ctx)) return;
-          const force = String(req.url || '').includes('force=1');
-          const payload = await readWalletSummary(ctx, force);
-          const body = JSON.stringify(payload);
-          res.writeHead(200, {
-            'Content-Type': 'application/json; charset=utf-8',
-            'Cache-Control': 'no-store',
-            'Content-Length': String(Buffer.byteLength(body)),
-          });
-          res.end(body);
+          if (rejectMethod(req, res, ['GET'])) return;
+          let force = false;
+          try {
+            force = new URL(String(req.url || '/'), 'http://localhost').searchParams.get('force') === '1';
+          } catch {}
+          sendJson(res, 200, await readWalletSummary(ctx, force));
         },
       })
     );
@@ -439,11 +479,13 @@ export function apply(ctx) {
       disposers.push(
         scoped.webServer.tapIndex((html) => {
           try {
+            if (!skinScript || typeof html !== 'string') return html;
             if (html.indexOf('__P3R_DSH_SKIN_INSTALLED__') !== -1) return html;
-            const scriptText = readFileSync(new URL('./dist/p3r-skin.js', import.meta.url), 'utf8');
-            if (!scriptText.trim() || /<\/script/i.test(scriptText)) return html;
-            const tag = '<script>' + scriptText + '</script>';
-            if (html.indexOf('</body>') !== -1) return html.replace('</body>', tag + '</body>');
+            const tag = '<script>' + skinScript + '</script>';
+            // Slice instead of String.replace: a string replacement would expand
+            // `$&` / `$'` / `$1` sequences occurring inside the script text.
+            const at = html.lastIndexOf('</body>');
+            if (at !== -1) return html.slice(0, at) + tag + html.slice(at);
             return html + tag;
           } catch {
             return html;

@@ -20,7 +20,7 @@
 
 ## 功能特性
 
-- **60fps 动态视频背景 + 可选落水转场**：通过同源 `/p3r-skin/loop.mp4`（默认 `assets/menu-loop-fv2-60fps-h264.mp4`，回退 `assets/menu-loop-h264.mp4`）在底层画布流畅播放循环背景；若本地提供可选开场视频（`menu-clean-4k60-h264.mp4` / `menu-clean-h264.mp4`），将在每次宿主启动后首次打开时自动播放一次落水入场并无缝衔接循环。
+- **60fps 动态视频背景 + 可选落水转场**：通过同源 `/p3r-skin/loop.mp4`（默认 `assets/menu-loop-fv2-60fps-h264.mp4`，回退 `assets/menu-loop-h264.mp4`）在底层画布流畅播放循环背景；若在插件的 `assets/` 目录下放入可选开场视频（`menu-clean-4k60-h264.mp4` / `menu-clean-h264.mp4`，不随包分发），将在每次宿主启动后首次打开时自动播放一次落水入场并无缝衔接循环。
 - **自适应毛玻璃与护眼衬底**：会话主区与左侧边栏支持独立开关、深蓝护眼衬底以及实时透明度（`0%–92%`）与模糊度（`0px–24px`）调节，确保设置弹窗、代码块、对话框和会话标题清晰可读。
 - **结城理透明头像交互坞（`#p3r-dsh-pill`）**：采用无背景 PNG 立绘与 `#7beeff` 轮廓光效 + 经典倾斜 HP/SP 条；点击展开 `P3R // RELOAD` 设置菜单，长按拖拽可自由移动屏幕位置并本地记忆。
 - **独立余额悬浮组件（`#p3r-dsh-wallet`）**：以 `current wallet` P3R 卡片样式实时展示账户余额；支持点击刷新、长按拖拽移动位置。
@@ -64,7 +64,7 @@ dsh plugin --profile <your-profile> add https://github.com/ytsu-ki/dsh-p3r-ui/re
 | 涉及能力 / 接口 | 用途 | 严格范围与安全限制 |
 |---|---|---|
 | `webServer`（`ctx.inject(['webServer'])`、`webserver/index-inject`、`tapIndex`） | 向 DSH 页面注入 `dist/p3r-skin.js` 并挂载 `/p3r-skin/*` 本地资源路由。 | 仅注入视觉皮肤脚本（`id: 'p3r-dsh-skin-inline'`）；构建与加载前都会校验脚本非空且不含 `</script` 标签逃逸。 |
-| 本地 HTTP 路由（`/p3r-skin/makoto-avatar.png`、`loop.mp4`、`intro.mp4`、`boot-state`、`wallet.json`） | 提供头像 PNG、背景视频流（支持 `Range`）、进程内一次性开场状态与只读余额 JSON。 | 所有接口首行执行 `rejectIfUntrusted(req, res, ctx)`：拒绝 `sec-fetch-site: cross-site`（返回 `403`）、优先调用宿主 `connection.requestRejection(req)` 校验连接可信度，回退检查时仅允许环回主机（`localhost` / `127.0.0.1` / `::1`）。静态资源路径在启动时从固定相对位置解析，不拼接 URL 查询参数，不存在路径穿越风险。 |
+| 本地 HTTP 路由（`/p3r-skin/makoto-avatar.png`、`loop.mp4`、`intro.mp4`、`boot-state`、`wallet.json`） | 提供头像 PNG、背景视频流（支持 `Range`）、进程内一次性开场状态与只读余额 JSON。 | 所有接口首行执行 `rejectIfUntrusted(req, res, ctx)`：拒绝 `sec-fetch-site` 不是 `same-origin`/`none` 的浏览器请求（`cross-site` 与 `same-site` 均返回 `403`）、优先调用宿主 `connection.requestRejection(req)` 校验连接可信度，回退检查时仅允许环回主机（`localhost` / `127.0.0.1` / `::1`）。静态资源路径在启动时从固定相对位置解析，不拼接 URL 查询参数，不存在路径穿越风险。 |
 | `ctx.get('deepseekAccount')` *（可选）* | 为可拖拽 `current wallet` 挂件显示当前余额。 | 仅调用只读 `acct.getBalance(...)`（8 秒超时，12 秒内存缓存），仅向页面返回 `{ ok, source, currency, normalBalance, bonusBalance, totalBalance, updatedAt }` 数值汇总；**不读取也不透传** Token、Cookie、密钥或账单明细，不触发任何充值或扣费操作。 |
 | `./client` 语言桥接（`client/locale-bridge.js`，注入 `@deepseek-ai/dsh-client-locale`） | 让设置卡片与悬浮提示词实时跟随 DSH 当前界面语言。 | 仅只读读取 `ctx.locale.getSnapshot().active` 与订阅变更事件，不写入或修改 DSH 语言偏好配置。 |
 | `$DSH_HOME/.dshw-usage.json` *（可选只读兜底）* | 当宿主未挂载 `deepseekAccount`（如独立 Web 调试）时读取数值余额。 | 仅以只读方式读取 `$DSH_HOME/.dshw-usage.json` 或 `$DSH_HOME/profiles/desktop/.dshw-usage.json` 中的有限数字字段 `lastBalance` 与 `todayUsage`，忽略其他字段。 |
@@ -137,7 +137,7 @@ A **Persona 3 Reload (Makoto Yuki)** visual UI skin plugin for **DeepSeek Harnes
 
 ## Features
 
-- **60fps Video Backdrop + Optional Splash Intro**: Renders `/p3r-skin/loop.mp4` (`assets/menu-loop-fv2-60fps-h264.mp4` with fallback to `assets/menu-loop-h264.mp4`) into a hardware-decoded canvas backdrop behind the DSH UI. If an optional intro clip (`menu-clean-4k60-h264.mp4` / `menu-clean-h264.mp4`) is present, it plays once per host startup and seamlessly transitions into the loop.
+- **60fps Video Backdrop + Optional Splash Intro**: Renders `/p3r-skin/loop.mp4` (`assets/menu-loop-fv2-60fps-h264.mp4` with fallback to `assets/menu-loop-h264.mp4`) into a hardware-decoded canvas backdrop behind the DSH UI. If an optional intro clip (`menu-clean-4k60-h264.mp4` / `menu-clean-h264.mp4`, not shipped) is placed in the plugin's `assets/` directory, it plays once per host startup and seamlessly transitions into the loop.
 - **Adaptive Frosted Glass**: Independent toggles and sliders (`0%–92%` opacity, `0–24px` blur) for the chat session area and the left sidebar, plus dark-blue contrast scrims so conversation text, settings dialogs, and modals remain clearly readable.
 - **Interactive P3R Portrait Dock (`#p3r-dsh-pill`)**: Transparent Makoto Yuki portrait cutout with `#7beeff` rim glow and tilted HP/SP bar. Click to toggle the settings panel (`P3R // RELOAD`), or hold and drag to reposition anywhere on screen (position saved locally).
 - **Floating Wallet HUD (`#p3r-dsh-wallet`)**: Displays current account balance in `current wallet` P3R card styling; click to refresh, hold and drag to reposition.
