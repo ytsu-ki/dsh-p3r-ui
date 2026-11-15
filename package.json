@@ -1,0 +1,67 @@
+{
+  "name": "dsh-p3r-ui",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Persona 3 Reload (Makoto Yuki) dynamic underwater video backdrop, adaptive frosted-glass theme, and draggable HUD widgets for DeepSeek Harness",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "dsh-theme",
+    "deepseek-harness",
+    "persona-3-reload",
+    "p3r",
+    "theme",
+    "skin"
+  ],
+  "author": "ytsu-ki",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ytsu-ki/dsh-p3r-ui.git"
+  },
+  "homepage": "https://github.com/ytsu-ki/dsh-p3r-ui#readme",
+  "bugs": {
+    "url": "https://github.com/ytsu-ki/dsh-p3r-ui/issues"
+  },
+  "main": "./index.js",
+  "icon": "./assets/makoto-avatar.png",
+  "exports": {
+    ".": "./index.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./icon": "./assets/makoto-avatar.png",
+    "./package.json": "./package.json"
+  },
+  "engines": {
+    "node": ">=20",
+    "dsh": ">=0.2.0-rc.1 <0.3.0-0"
+  },
+  "files": [
+    "index.js",
+    "cordis.patch.yml",
+    "dist/p3r-skin.js",
+    "src/skin-runtime.js",
+    "scripts/build.mjs",
+    "assets/makoto-avatar.png",
+    "assets/menu-loop-fv2-60fps-h264.mp4",
+    "assets/menu-loop-h264.mp4",
+    "README.md",
+    "README_ZH.md",
+    "SECURITY.md",
+    "PROVENANCE.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "node ./scripts/build.mjs",
+    "check": "node --check index.js && node --check src/skin-runtime.js && node --check dist/p3r-skin.js",
+    "prepack": "npm run build && npm run check"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "manifestVersion": 1
+  }
+}

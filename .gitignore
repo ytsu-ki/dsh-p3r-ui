@@ -1,0 +1,8 @@
+node_modules/
+.DS_Store
+*.sb-*
+*.log
+*.tgz
+tmp/
+.tmp/
+assets/menu-loop-4k60-h264.mp4
