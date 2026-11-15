@@ -30,6 +30,7 @@
   "icon": "./assets/makoto-avatar.png",
   "exports": {
     ".": "./index.js",
+    "./client": "./client/locale-bridge.js",
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./icon": "./assets/makoto-avatar.png",
     "./package.json": "./package.json"
@@ -40,6 +41,7 @@
   },
   "files": [
     "index.js",
+    "client/locale-bridge.js",
     "cordis.patch.yml",
     "dist/p3r-skin.js",
     "src/skin-runtime.js",
@@ -54,12 +56,18 @@
   ],
   "scripts": {
     "build": "node ./scripts/build.mjs",
-    "check": "node --check index.js && node --check src/skin-runtime.js && node --check dist/p3r-skin.js",
+    "check": "node --check index.js && node --check client/locale-bridge.js && node --check src/skin-runtime.js && node --check dist/p3r-skin.js",
     "prepack": "npm run build && npm run check"
   },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-locale"
+      ],
+      "platform": "web"
     },
     "manifestVersion": 1
   }

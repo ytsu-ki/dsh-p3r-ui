@@ -25,6 +25,7 @@
 - **结城理透明头像交互坞（`#p3r-dsh-pill`）**：采用无背景 PNG 立绘与 `#7beeff` 轮廓光效 + 经典倾斜 HP/SP 条；点击展开 `P3R // RELOAD` 设置菜单，长按拖拽可自由移动屏幕位置并本地记忆。
 - **独立余额悬浮组件（`#p3r-dsh-wallet`）**：以 `current wallet` P3R 卡片样式实时展示账户余额；支持点击刷新、长按拖拽移动位置。
 - **P3R 点击动效与可选合成音效**：提供棱角光片点击爆裂特效及 Web Audio API 合成的 P3R 按键音效（音效默认关闭，可在面板中手动开启）。
+- **UI 语言自动跟随 DeepSeek Harness**：通过只读客户端模块桥接 `ctx.locale`（`@deepseek-ai/dsh-client-locale`）及宿主页面语言标识，设置面板、按钮与悬浮提示自动同步 DSH 当前界面语言（支持简体中文 / English / 日本語，无需重载实时切换）。
 - **零外部联网依赖**：不加载任何远程字体、CDN 资源或统计脚本，所有视觉效果均在本机运行。
 
 ---
@@ -65,6 +66,7 @@ dsh plugin --profile <your-profile> add https://github.com/ytsu-ki/dsh-p3r-ui/re
 | `webServer`（`ctx.inject(['webServer'])`、`webserver/index-inject`、`tapIndex`） | 向 DSH 页面注入 `dist/p3r-skin.js` 并挂载 `/p3r-skin/*` 本地资源路由。 | 仅注入视觉皮肤脚本（`id: 'p3r-dsh-skin-inline'`）；构建与加载前都会校验脚本非空且不含 `</script` 标签逃逸。 |
 | 本地 HTTP 路由（`/p3r-skin/makoto-avatar.png`、`loop.mp4`、`intro.mp4`、`boot-state`、`wallet.json`） | 提供头像 PNG、背景视频流（支持 `Range`）、进程内一次性开场状态与只读余额 JSON。 | 所有接口首行执行 `rejectIfUntrusted(req, res, ctx)`：拒绝 `sec-fetch-site: cross-site`（返回 `403`）、优先调用宿主 `connection.requestRejection(req)` 校验连接可信度，回退检查时仅允许环回主机（`localhost` / `127.0.0.1` / `::1`）。静态资源路径在启动时从固定相对位置解析，不拼接 URL 查询参数，不存在路径穿越风险。 |
 | `ctx.get('deepseekAccount')` *（可选）* | 为可拖拽 `current wallet` 挂件显示当前余额。 | 仅调用只读 `acct.getBalance(...)`（8 秒超时，12 秒内存缓存），仅向页面返回 `{ ok, source, currency, normalBalance, bonusBalance, totalBalance, updatedAt }` 数值汇总；**不读取也不透传** Token、Cookie、密钥或账单明细，不触发任何充值或扣费操作。 |
+| `./client` 语言桥接（`client/locale-bridge.js`，注入 `@deepseek-ai/dsh-client-locale`） | 让设置卡片与悬浮提示词实时跟随 DSH 当前界面语言。 | 仅只读读取 `ctx.locale.getSnapshot().active` 与订阅变更事件，不写入或修改 DSH 语言偏好配置。 |
 | `$DSH_HOME/.dshw-usage.json` *（可选只读兜底）* | 当宿主未挂载 `deepseekAccount`（如独立 Web 调试）时读取数值余额。 | 仅以只读方式读取 `$DSH_HOME/.dshw-usage.json` 或 `$DSH_HOME/profiles/desktop/.dshw-usage.json` 中的有限数字字段 `lastBalance` 与 `todayUsage`，忽略其他字段。 |
 | 浏览器 `localStorage` & `sessionStorage` | 保存皮肤开关、透明度/模糊度滑块、组件拖拽坐标与当前会话开场状态。 | 使用键名：`p3r_dsh_desktop_skin_v2`（兼容读取 `v1`）、`p3r_dsh_widget_pos_v1`、`p3r_dsh_boot_id`、`p3r_dsh_intro_seen`。 |
 
@@ -140,6 +142,7 @@ A **Persona 3 Reload (Makoto Yuki)** visual UI skin plugin for **DeepSeek Harnes
 - **Interactive P3R Portrait Dock (`#p3r-dsh-pill`)**: Transparent Makoto Yuki portrait cutout with `#7beeff` rim glow and tilted HP/SP bar. Click to toggle the settings panel (`P3R // RELOAD`), or hold and drag to reposition anywhere on screen (position saved locally).
 - **Floating Wallet HUD (`#p3r-dsh-wallet`)**: Displays current account balance in `current wallet` P3R card styling; click to refresh, hold and drag to reposition.
 - **P3R Click FX & Optional Web Audio SFX**: Angular blue/crimson click bursts and synthesized P3R UI tones (audio is **off by default**).
+- **Automatic DSH Language Sync**: Reads DSH's active UI locale via the read-only `./client` bridge (`@deepseek-ai/dsh-client-locale`) and host chrome fallback, updating all dock switches, buttons, and tooltips live (Simplified Chinese / English / Japanese).
 - **Zero External Network Dependencies**: No remote fonts, CDNs, or analytics calls — all visual effects run locally on the DSH host.
 
 ## Compatibility & Installation
@@ -172,6 +175,7 @@ Restart DSH (`Cmd + Q` and reopen on macOS Desktop, or restart `dsh web`) to act
 - **Host capabilities used**:
   - `webServer` (`ctx.inject(['webServer'])`, `webserver/index-inject`, `tapIndex`) to inject `dist/p3r-skin.js` and mount local `/p3r-skin/*` routes protected by `rejectIfUntrusted(req, res, ctx)` (`sec-fetch-site: cross-site` rejected with `403`, `connection.requestRejection(req)` enforced when available, strict loopback host fallback, fixed startup asset candidates).
   - Optional `ctx.get('deepseekAccount')` read-only `getBalance(...)` (8s timeout, 12s RAM cache) and optional read-only fallback `$DSH_HOME/.dshw-usage.json` (`lastBalance` / `todayUsage` numbers only) for the wallet HUD.
+  - Read-only `./client` locale bridge (`client/locale-bridge.js`, `@deepseek-ai/dsh-client-locale`) to follow DSH's active UI language without modifying host settings.
   - Browser `localStorage` / `sessionStorage` keys strictly for skin preferences, widget coordinates, and per-tab splash state.
 - **Explicitly never done**: No agent tools, no prompt/session/workspace reading, no credential/token access, zero disk writes (`writeFile`), zero `child_process` spawning, and zero outbound network requests.
 

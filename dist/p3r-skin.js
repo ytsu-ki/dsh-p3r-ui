@@ -1460,6 +1460,175 @@
     positionWalletWidget();
   }
 
+  var P3R_I18N = {
+    zh: {
+      enabled: "启用动态视频背景",
+      chatGlass: "会话区毛玻璃",
+      chatScrim: "主区深蓝护眼衬底",
+      sidebarGlass: "左侧菜单毛玻璃",
+      sidebarScrim: "侧栏深蓝护眼衬底",
+      btnFx: "P3R 按键/菜单动效",
+      btnSfx: "P3R 按键音效",
+      glassOpacity: "毛玻璃透明度",
+      transparentZero: "0% (完全透明)",
+      blurStrength: "模糊强度",
+      peek: "全景预览",
+      restore: "恢复界面",
+      replay: "重播落水",
+      resetPos: "重置位置",
+      close: "收起",
+      pillTitle: "Persona 3 Reload 设置（按住拖拽可移动位置）",
+      walletDefaultTitle: "当前余额（点击刷新 / 按住拖拽移动）",
+      walletBalancePrefix: "当前余额: ",
+      walletBonus: "含赠金 ",
+      walletTodayUsage: "今日消耗: ",
+      walletDragHint: "（点击刷新 / 按住拖拽移动）"
+    },
+    en: {
+      enabled: "Dynamic Video Backdrop",
+      chatGlass: "Chat Frosted Glass",
+      chatScrim: "Chat Deep-Blue Scrim",
+      sidebarGlass: "Sidebar Frosted Glass",
+      sidebarScrim: "Sidebar Deep-Blue Scrim",
+      btnFx: "P3R Button & Menu FX",
+      btnSfx: "P3R Button SFX",
+      glassOpacity: "Glass Opacity",
+      transparentZero: "0% (Transparent)",
+      blurStrength: "Blur Strength",
+      peek: "Peek Backdrop",
+      restore: "Restore UI",
+      replay: "Replay Intro",
+      resetPos: "Reset Pos",
+      close: "Close",
+      pillTitle: "Persona 3 Reload Settings (Drag to move)",
+      walletDefaultTitle: "Current Balance (Click to refresh / Drag to move)",
+      walletBalancePrefix: "Balance: ",
+      walletBonus: "Bonus ",
+      walletTodayUsage: "Today: ",
+      walletDragHint: " (Click to refresh / Drag to move)"
+    },
+    ja: {
+      enabled: "動的ビデオ背景を有効化",
+      chatGlass: "チャットすりガラス",
+      chatScrim: "チャット濃紺スクリーム",
+      sidebarGlass: "サイドバーすりガラス",
+      sidebarScrim: "サイドバー濃紺スクリーム",
+      btnFx: "P3R ボタン・メニュー演出",
+      btnSfx: "P3R ボタン効果音",
+      glassOpacity: "ガラス不透明度",
+      transparentZero: "0% (完全透明)",
+      blurStrength: "ぼかし強度",
+      peek: "背景プレビュー",
+      restore: "UI を復元",
+      replay: "導入を再再生",
+      resetPos: "位置リセット",
+      close: "閉じる",
+      pillTitle: "Persona 3 Reload 設定（ドラッグで移動）",
+      walletDefaultTitle: "現在の残高（クリックで更新 / ドラッグで移動）",
+      walletBalancePrefix: "現在の残高: ",
+      walletBonus: "ボーナス ",
+      walletTodayUsage: "本日利用: ",
+      walletDragHint: "（クリックで更新 / ドラッグで移動）"
+    }
+  };
+
+  var activeLang = "zh";
+  var lastWalletData = null;
+
+  function normalizeLocaleCode(raw) {
+    var s = String(raw || "").trim().toLowerCase();
+    if (!s) return "";
+    if (s === "zh" || s.indexOf("zh-") === 0 || s.indexOf("zh_") === 0) return "zh";
+    if (s === "ja" || s.indexOf("ja-") === 0 || s.indexOf("ja_") === 0) return "ja";
+    if (s === "en" || s.indexOf("en-") === 0 || s.indexOf("en_") === 0) return "en";
+    return "";
+  }
+
+  function detectDshLang() {
+    try {
+      var bridge = window.__P3R_DSH_LOCALE__;
+      if (bridge) {
+        var bridgeVal = typeof bridge.get === "function" ? bridge.get() : bridge.active;
+        var mappedBridge = normalizeLocaleCode(bridgeVal);
+        if (mappedBridge) return mappedBridge;
+      }
+    } catch (e) {}
+
+    try {
+      var chromeNodes = document.querySelectorAll(
+        "[class*='_sidebarCol'] button[class*='_newSession'], [class*='_sidebarCol'] [class*='_sectionLabel']"
+      );
+      var combinedChrome = "";
+      for (var i = 0; i < chromeNodes.length; i++) {
+        var txt = (chromeNodes[i].textContent || "").trim();
+        if (txt) combinedChrome += " " + txt;
+      }
+      if (combinedChrome) {
+        if (/[\u3040-\u30ff]/.test(combinedChrome)) return "ja";
+        if (/[\u4e00-\u9fff]/.test(combinedChrome)) return "zh";
+        if (/\b(?:New\s+(?:Chat|Session)|Pinned|Today|Yesterday|Recent)\b/i.test(combinedChrome)) return "en";
+      }
+    } catch (e) {}
+
+    try {
+      var htmlLang = normalizeLocaleCode(document.documentElement && document.documentElement.lang);
+      if (htmlLang) return htmlLang;
+    } catch (e) {}
+
+    try {
+      var navLang = normalizeLocaleCode(typeof navigator !== "undefined" && navigator.language);
+      if (navLang) return navLang;
+    } catch (e) {}
+
+    return "en";
+  }
+
+  function tr(key) {
+    var dict = P3R_I18N[activeLang] || P3R_I18N.en;
+    if (dict && Object.prototype.hasOwnProperty.call(dict, key)) return dict[key];
+    return P3R_I18N.en[key] || P3R_I18N.zh[key] || key;
+  }
+
+  function formatWalletTitle(data) {
+    if (!data || !data.ok) return tr("walletDefaultTitle");
+    var val = typeof data.totalBalance === "number" ? data.totalBalance : data.balance;
+    if (typeof val !== "number" || !isFinite(val)) return tr("walletDefaultTitle");
+    var tip = tr("walletBalancePrefix") + formatWalletCurrency(data.currency) + formatWalletAmount(val);
+    if (typeof data.bonusBalance === "number" && data.bonusBalance > 0) {
+      tip += " (" + tr("walletBonus") + formatWalletAmount(data.bonusBalance) + ")";
+    }
+    if (typeof data.todayUsage === "number" && isFinite(data.todayUsage)) {
+      tip += " | " + tr("walletTodayUsage") + data.todayUsage.toFixed(2);
+    }
+    return tip + tr("walletDragHint");
+  }
+
+  function applyI18n(force) {
+    var nextLang = detectDshLang();
+    if (!force && nextLang === activeLang) return;
+    activeLang = nextLang;
+
+    var card = document.getElementById("p3r-dsh-card");
+    if (card) {
+      var nodes = card.querySelectorAll("[data-p3r-i18n]");
+      for (var i = 0; i < nodes.length; i++) {
+        var key = nodes[i].getAttribute("data-p3r-i18n");
+        if (key) nodes[i].textContent = tr(key);
+      }
+      var btnPeek = document.getElementById("p3r-btn-peek");
+      if (btnPeek) {
+        var btnPeekLabel = btnPeek.querySelector("span") || btnPeek;
+        btnPeekLabel.textContent = tr(cfg.peek ? "restore" : "peek");
+      }
+      var alphaVal = document.getElementById("p3r-alpha-val");
+      if (alphaVal) alphaVal.textContent = formatAlphaText(cfg.panelAlpha);
+    }
+
+    var pill = document.getElementById("p3r-dsh-pill");
+    if (pill) pill.title = tr("pillTitle");
+    if (walletEl) walletEl.title = formatWalletTitle(lastWalletData);
+  }
+
   function fetchWalletBalance(force) {
     if (!walletEl || walletRefreshing) return;
     walletRefreshing = true;
@@ -1474,16 +1643,10 @@
         if (!data || !data.ok) return;
         var val = typeof data.totalBalance === "number" ? data.totalBalance : data.balance;
         if (typeof val !== "number" || !isFinite(val)) return;
+        lastWalletData = data;
         if (walletCurEl) walletCurEl.textContent = formatWalletCurrency(data.currency);
         if (walletAmtEl) walletAmtEl.textContent = formatWalletAmount(val);
-        var tip = "当前余额: " + formatWalletCurrency(data.currency) + formatWalletAmount(val);
-        if (typeof data.bonusBalance === "number" && data.bonusBalance > 0) {
-          tip += " (含赠金 " + formatWalletAmount(data.bonusBalance) + ")";
-        }
-        if (typeof data.todayUsage === "number" && isFinite(data.todayUsage)) {
-          tip += " | 今日消耗: " + data.todayUsage.toFixed(2);
-        }
-        walletEl.title = tip + "（点击刷新 / 按住拖拽移动）";
+        walletEl.title = formatWalletTitle(data);
         positionOverlayWidgets();
       })
       .catch(function () {})
@@ -1526,13 +1689,15 @@
 
   function formatAlphaText(val) {
     var pct = Math.round(val * 100);
-    return pct === 0 ? "0% (完全透明)" : pct + "%";
+    return pct === 0 ? tr("transparentZero") : pct + "%";
   }
 
-  function buildSwitchRow(labelText, inputId) {
+  function buildSwitchRow(i18nKey, inputId) {
     return (
-      '<label class="p3r-row"><span>' +
-      labelText +
+      '<label class="p3r-row"><span data-p3r-i18n="' +
+      i18nKey +
+      '">' +
+      tr(i18nKey) +
       '</span><span class="p3r-switch"><input type="checkbox" id="' +
       inputId +
       '"><span class="p3r-switch-track"></span></span></label>'
@@ -1542,6 +1707,7 @@
   function mountDom() {
     if (!document.body || document.getElementById("p3r-dsh-stage")) return;
     ensureStyles();
+    activeLang = detectDshLang();
 
     var stage = document.createElement("div");
     stage.id = "p3r-dsh-stage";
@@ -1572,29 +1738,29 @@
     dock.innerHTML =
       '<div id="p3r-dsh-card">' +
       '  <div class="p3r-card-head"><span>P3R // RELOAD</span><span class="p3r-card-tag"><span>TACTICS</span></span></div>' +
-      buildSwitchRow("启用动态视频背景", "p3r-chk-enabled") +
-      buildSwitchRow("会话区毛玻璃", "p3r-chk-chat-glass") +
-      buildSwitchRow("主区深蓝护眼衬底", "p3r-chk-chat-scrim") +
-      buildSwitchRow("左侧菜单毛玻璃", "p3r-chk-sidebar-glass") +
-      buildSwitchRow("侧栏深蓝护眼衬底", "p3r-chk-sidebar-scrim") +
-      buildSwitchRow("P3R 按键/菜单动效", "p3r-chk-btn-fx") +
-      buildSwitchRow("P3R 按键音效", "p3r-chk-btn-sfx") +
+      buildSwitchRow("enabled", "p3r-chk-enabled") +
+      buildSwitchRow("chatGlass", "p3r-chk-chat-glass") +
+      buildSwitchRow("chatScrim", "p3r-chk-chat-scrim") +
+      buildSwitchRow("sidebarGlass", "p3r-chk-sidebar-glass") +
+      buildSwitchRow("sidebarScrim", "p3r-chk-sidebar-scrim") +
+      buildSwitchRow("btnFx", "p3r-chk-btn-fx") +
+      buildSwitchRow("btnSfx", "p3r-chk-btn-sfx") +
       '  <div class="p3r-slider-wrap">' +
-      '    <div class="p3r-slider-head"><span>毛玻璃透明度</span><b id="p3r-alpha-val">48%</b></div>' +
+      '    <div class="p3r-slider-head"><span data-p3r-i18n="glassOpacity">' + tr("glassOpacity") + '</span><b id="p3r-alpha-val">48%</b></div>' +
       '    <input type="range" id="p3r-rng-alpha" min="0" max="0.92" step="0.01">' +
       "  </div>" +
       '  <div class="p3r-slider-wrap">' +
-      '    <div class="p3r-slider-head"><span>模糊强度</span><b id="p3r-blur-val">14px</b></div>' +
+      '    <div class="p3r-slider-head"><span data-p3r-i18n="blurStrength">' + tr("blurStrength") + '</span><b id="p3r-blur-val">14px</b></div>' +
       '    <input type="range" id="p3r-rng-blur" min="0" max="24" step="1">' +
       "  </div>" +
       '  <div class="p3r-btn-row">' +
-      '    <button type="button" class="p3r-mini-btn primary" id="p3r-btn-peek"><span>全景预览</span></button>' +
-      '    <button type="button" class="p3r-mini-btn" id="p3r-btn-replay"><span>重播落水</span></button>' +
-      '    <button type="button" class="p3r-mini-btn" id="p3r-btn-reset-pos"><span>重置位置</span></button>' +
-      '    <button type="button" class="p3r-mini-btn" id="p3r-btn-close"><span>收起</span></button>' +
+      '    <button type="button" class="p3r-mini-btn primary" id="p3r-btn-peek"><span>' + tr("peek") + '</span></button>' +
+      '    <button type="button" class="p3r-mini-btn" id="p3r-btn-replay"><span data-p3r-i18n="replay">' + tr("replay") + '</span></button>' +
+      '    <button type="button" class="p3r-mini-btn" id="p3r-btn-reset-pos"><span data-p3r-i18n="resetPos">' + tr("resetPos") + '</span></button>' +
+      '    <button type="button" class="p3r-mini-btn" id="p3r-btn-close"><span data-p3r-i18n="close">' + tr("close") + '</span></button>' +
       "  </div>" +
       "</div>" +
-      '<button type="button" id="p3r-dsh-pill" draggable="false" title="Persona 3 Reload 设置（按住拖拽可移动位置）">' +
+      '<button type="button" id="p3r-dsh-pill" draggable="false" title="' + tr("pillTitle") + '">' +
       '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 148 156" width="100%" height="100%" aria-hidden="true"><defs><filter id="p3r-mk-rim" x="-15%" y="-15%" width="130%" height="130%"><feComponentTransfer in="SourceAlpha" result="thresh"><feFuncA type="discrete" tableValues="0 0 0.35 1 1 1 1 1 1 1"/></feComponentTransfer><feMorphology in="thresh" operator="dilate" radius="2.4" result="dilated"/><feGaussianBlur in="dilated" stdDeviation="0.55" result="soft"/><feFlood flood-color="#7beeff" result="cyan"/><feComposite in="cyan" in2="soft" operator="in" result="outline"/><feMerge><feMergeNode in="outline"/><feMergeNode in="SourceGraphic"/></feMerge></filter><clipPath id="p3r-mk-headcrop"><polygon points="0,0 148,0 148,96 28,136 0,136"/></clipPath></defs><g filter="url(#p3r-mk-rim)"><g clip-path="url(#p3r-mk-headcrop)"><image href="/p3r-skin/makoto-avatar.png?v=1" x="14" y="4" width="108" height="119" preserveAspectRatio="xMidYMid meet"/></g><g transform="translate(80 121) rotate(-19.8)"><rect x="-56" y="-14.5" width="112" height="29" rx="2.5" fill="#0d5ad0" stroke="#7beeff" stroke-width="2"/><polygon class="p3r-mk-hp" points="-47,-8 39,-8 35,-1.5 -51,-1.5" fill="#3cf2ff"/><polygon class="p3r-mk-sp" points="-37,1.5 49,1.5 45,8 -41,8" fill="#f4d81c"/></g></g></svg>' +
       "</button>";
 
@@ -1604,7 +1770,7 @@
     walletEl.id = "p3r-dsh-wallet";
     walletEl.setAttribute("role", "button");
     walletEl.setAttribute("tabindex", "0");
-    walletEl.title = "当前余额（点击刷新 / 按住拖拽移动）";
+    walletEl.title = tr("walletDefaultTitle");
     walletEl.innerHTML =
       '<div class="p3r-wallet-card">' +
       '  <div class="p3r-wallet-top">' +
@@ -1748,7 +1914,7 @@
 
     btnPeek.addEventListener("click", function () {
       cfg.peek = !cfg.peek;
-      btnPeekLabel.textContent = cfg.peek ? "恢复界面" : "全景预览";
+      btnPeekLabel.textContent = tr(cfg.peek ? "restore" : "peek");
       syncStateToDom();
     });
 
@@ -1762,8 +1928,13 @@
       playIntroSequence();
     });
 
+    window.addEventListener("p3r-dsh-locale-change", function () {
+      applyI18n(false);
+    });
+
     initVideoLifecycle();
     syncStateToDom();
+    applyI18n(true);
 
     var resizeRaf = 0;
     window.addEventListener("resize", function () {
@@ -1779,12 +1950,14 @@
       if (applyingGlassPass) return;
       var needsPass = false;
       var animEnded = false;
+      var localeDirty = false;
       for (var i = 0; i < mutations.length; i++) {
         var m = mutations[i];
         if (m.type === "attributes") {
           if (m.target === document.documentElement || m.target === document.body) {
             detectedDark = detectThemeDark();
             syncGlassCssVars();
+            if (m.attributeName === "lang") localeDirty = true;
           } else if (m.attributeName === "data-animating") {
             if (!m.target.hasAttribute("data-animating")) animEnded = true;
           }
@@ -1794,8 +1967,10 @@
           var mt = m.target && m.target.nodeType === 3 ? m.target.parentElement : m.target;
           if (mt && mt.closest && (mt.closest("#p3r-dsh-dock") || mt.closest("#p3r-fx-layer") || mt.closest("#p3r-dsh-wallet") || mt.closest("#p3r-dsh-stage") || mt.closest("[data-p3r-brand]"))) continue;
           needsPass = true;
+          localeDirty = true;
         }
       }
+      if (localeDirty) applyI18n(false);
       if (animEnded) {
         if (glassTimer) {
           clearTimeout(glassTimer);
@@ -1809,7 +1984,7 @@
     });
     observer.observe(document.documentElement, {
       attributes: true,
-      attributeFilter: ["class", "data-theme", "data-ds-theme-source"],
+      attributeFilter: ["class", "data-theme", "data-ds-theme-source", "lang"],
     });
     observer.observe(document.body, {
       attributes: true,
