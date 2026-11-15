@@ -4,6 +4,18 @@
 
 面向 **DeepSeek Harness (DSH)** 桌面端与 Web 端的 **Persona 3 Reload（结城理）** 动态主题皮肤插件 —— 提供 60fps 水下循环视频背景、独立可调毛玻璃面板、P3R 风格字体与点击动效、可拖拽结城理头像控制坞，以及可拖拽的 `current wallet` 余额悬浮卡。
 
+## 界面预览
+
+> 说明：以下演示图基于脱敏模拟工作区与测试余额（`¥88.88`）截取，不含任何个人真实会话或账户信息。
+
+| 主界面效果（毛玻璃对话 + 结城理头像 HUD + 余额悬浮卡） |
+| :---: |
+| ![dsh-p3r-ui 主界面效果预览](assets/preview-main.png) |
+
+| 控制面板展开（`P3R // RELOAD` 实时参数调节） | 全景预览模式（隐藏 UI 欣赏动态水下背景） |
+| :---: | :---: |
+| ![P3R // RELOAD 控制面板展开预览](assets/preview-dock.png) | ![全景预览模式截图](assets/preview-peek.png) |
+
 ---
 
 ## 功能特性
@@ -108,6 +120,18 @@ npm run check   # 对 index.js、src/skin-runtime.js、dist/p3r-skin.js 执行 n
 [简体中文](#dsh-p3r-ui) | English
 
 A **Persona 3 Reload (Makoto Yuki)** visual UI skin plugin for **DeepSeek Harness (DSH)** Desktop & Web UI — featuring a 60fps looping underwater video backdrop, adaptive frosted-glass panels, P3R-inspired typography & click FX, a draggable Makoto portrait settings dock, and a draggable `current wallet` balance HUD widget.
+
+## Screenshots
+
+> Note: Captured in a sanitized demo workspace with mock balance (`¥88.88`); no personal sessions or account data are included.
+
+| Main Workspace (Frosted Glass + Makoto HUD + Wallet Widget) |
+| :---: |
+| ![dsh-p3r-ui Main Workspace Preview](assets/preview-main.png) |
+
+| Control Dock Expanded (`P3R // RELOAD`) | Full-Bleed Backdrop Peek Mode |
+| :---: | :---: |
+| ![P3R // RELOAD Control Dock Preview](assets/preview-dock.png) | ![Full-Bleed Backdrop Peek Preview](assets/preview-peek.png) |
 
 ## Features
 
