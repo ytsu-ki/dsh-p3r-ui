@@ -96,8 +96,9 @@
      STYLESHEET INJECTION
      ======================================================================== */
   var CSS_TEXT = [
-    "#p3r-dsh-stage{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden;",
+    "#p3r-dsh-stage{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden;-webkit-app-region:initial!important;app-region:initial!important;",
     "background:linear-gradient(180deg,#42c9fd 0%,#029eeb 34%,#002ea8 75%,#00188c 100%);transition:opacity .32s ease}",
+    "#p3r-dsh-stage *{-webkit-app-region:initial!important;app-region:initial!important}",
     "#p3r-dsh-stage.p3r-off{opacity:0;visibility:hidden}",
     ".p3r-dsh-vid{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:left center;pointer-events:none;user-select:none}",
     "#p3r-vid-loop{z-index:1;opacity:1}",
@@ -277,7 +278,8 @@
     "html.p3r-btn-fx [role='menu'] [role^='menuitem'][data-danger='true']:hover,html.p3r-btn-fx [role='menu'] [role^='menuitem'][data-danger='true']:focus-visible{background:#d80018!important;color:#ffffff!important;border-color:#090d1a!important;box-shadow:3px 2px 0 #090d1a!important;transform:translateX(3px)}",
     "html.p3r-btn-fx [role='menu'] [role^='menuitem']:active,html.p3r-btn-fx [role='listbox'] [role='option']:active{transform:translateX(2px) scale(0.97)!important}",
     "html.p3r-btn-fx [role='menu'] [role='separator']{background:#3c568c!important}",
-    "#p3r-fx-layer{position:fixed;inset:0;z-index:2147483400;pointer-events:none;overflow:hidden}",
+    "#p3r-fx-layer{position:fixed;inset:0;z-index:2147483400;pointer-events:none;overflow:hidden;-webkit-app-region:initial!important;app-region:initial!important}",
+    "#p3r-fx-layer *{-webkit-app-region:initial!important;app-region:initial!important}",
     ".p3r-burst{position:fixed;left:0;top:0;width:0;height:0;pointer-events:none}",
     ".p3r-burst-ring{position:absolute;left:-12px;top:-12px;width:24px;height:24px;border:2px solid #d80018;transform:skewX(-12deg) rotate(45deg) scale(0.35);animation:p3rRingOut .3s cubic-bezier(0.16,1,0.3,1) forwards}",
     ".p3r-burst-slash{position:absolute;left:-24px;top:-1.5px;width:48px;height:3px;background:linear-gradient(90deg,transparent 0%,#ffe600 28%,#ffffff 50%,#d80018 72%,transparent 100%);transform:rotate(-18deg) scaleX(0.25);animation:p3rSlashCut .22s cubic-bezier(0.16,1,0.3,1) forwards}",
