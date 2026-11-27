@@ -57,7 +57,7 @@ dsh plugin --profile web add dsh-p3r-ui
 
 或直接安装 GitHub Release 预构建包（内置已构建的 `dist/p3r-skin.js`，免额外构建步骤）：
 ```sh
-dsh plugin --profile <your-profile> add https://github.com/ytsu-ki/dsh-p3r-ui/releases/latest/download/dsh-p3r-ui-1.1.0.tgz
+dsh plugin --profile <your-profile> add https://github.com/ytsu-ki/dsh-p3r-ui/releases/latest/download/dsh-p3r-ui-1.1.1.tgz
 ```
 
 安装完成后，请重启 DSH（macOS 桌面端使用 `Cmd + Q` 完全退出后重新打开，或重启 `dsh web`）以加载新增静态路由与注入脚本。
@@ -183,7 +183,7 @@ dsh plugin --profile web add dsh-p3r-ui
 
 Or directly from the GitHub Release tarball (pre-built `dist/p3r-skin.js`, no build step required):
 ```sh
-dsh plugin --profile <your-profile> add https://github.com/ytsu-ki/dsh-p3r-ui/releases/latest/download/dsh-p3r-ui-1.1.0.tgz
+dsh plugin --profile <your-profile> add https://github.com/ytsu-ki/dsh-p3r-ui/releases/latest/download/dsh-p3r-ui-1.1.1.tgz
 ```
 
 Restart DSH (`Cmd + Q` and reopen on macOS Desktop, or restart `dsh web`) to activate the routes and runtime script.

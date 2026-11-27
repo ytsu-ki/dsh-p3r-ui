@@ -324,6 +324,118 @@ test('skin runtime removes legacy red-on-blue clashes and wires A2+M1+G2 tokens 
   assert.equal(src.includes('p3r-er-dragging'), true, 'must disable glide transition only during raw drag');
   assert.equal(src.includes('emitEffortGlideArc'), true, 'must emit glide trail arc on click-to-switch');
   assert.equal(src.includes("[class*='_triggerEffort']"), true);
+  assert.equal(src.includes('function scheduleEffortFrame()'), true, 'effort rAF scheduling must be centralized');
+  assert.equal(
+    (src.match(/requestAnimationFrame\(stepEffortParticles\)/g) || []).length,
+    1,
+    'stepEffortParticles must only be scheduled through scheduleEffortFrame to prevent exponential rAF duplication'
+  );
+});
+
+test('effort particle loop never spawns duplicate rAF callbacks while dragging in High/Max tiers', () => {
+  const src = readFileSync(new URL('../src/skin-runtime.js', import.meta.url), 'utf8');
+  const startMark = 'var effortCanvas = null;';
+  const endMark = 'function getBridgeEffortSnapshot()';
+  const startIdx = src.indexOf(startMark);
+  const endIdx = src.indexOf(endMark);
+  assert.ok(startIdx > 0 && endIdx > startIdx, 'effort particle engine block must exist');
+  const snippet = src.slice(startIdx, endIdx);
+
+  let rafSeq = 0;
+  const rafQueue = new Map();
+  let drawOps = 0;
+  const fakeCtx = {
+    globalAlpha: 1,
+    strokeStyle: '',
+    fillStyle: '',
+    lineWidth: 1,
+    setTransform() {},
+    clearRect() {},
+    beginPath() {},
+    moveTo() {},
+    lineTo() {},
+    closePath() {},
+    arc() {},
+    stroke() { drawOps++; },
+    fill() { drawOps++; },
+  };
+  const fakeCanvas = {
+    id: '',
+    width: 0,
+    height: 0,
+    style: { left: '', top: '', width: '', height: '', visibility: 'hidden' },
+    setAttribute() {},
+    getContext() { return fakeCtx; },
+  };
+  const fakeWindow = { innerWidth: 1280, innerHeight: 800, devicePixelRatio: 2 };
+  const fakeDocument = {
+    body: { appendChild() {} },
+    createElement() { return fakeCanvas; },
+  };
+
+  const factory = new Function(
+    'window',
+    'document',
+    'cfg',
+    'requestAnimationFrame',
+    'cancelAnimationFrame',
+    'matchMedia',
+    snippet + '\nreturn { anchorEffortCanvas, emitEffortTrail, emitEffortBurst, scheduleEffortFrame, setDrag: function(d){ activeEffortDrag = d; }, getPoolCount: function(){ return effortPoolCount; } };'
+  );
+
+  const api = factory(
+    fakeWindow,
+    fakeDocument,
+    { enabled: true, btnFx: true, btnSfx: false },
+    (cb) => {
+      const id = ++rafSeq;
+      rafQueue.set(id, cb);
+      return id;
+    },
+    (id) => rafQueue.delete(id),
+    () => ({ matches: false })
+  );
+
+  api.anchorEffortCanvas({ left: 900, top: 680, width: 240, height: 10 });
+  let pendingX = 1135;
+  api.setDrag({
+    thumbX: 1135,
+    thumbY: 685,
+    tier: 3,
+    flushPending() {
+      if (pendingX === null) return;
+      const x = pendingX;
+      pendingX = null;
+      api.emitEffortTrail(x, 685, 6, 3);
+    },
+  });
+  api.emitEffortBurst(1135, 685, 3, false);
+
+  let maxQueuedPerFrame = 0;
+  for (let frame = 0; frame < 60; frame++) {
+    pendingX = 1130 + (frame % 10);
+    api.scheduleEffortFrame();
+    assert.ok(rafQueue.size <= 1, `frame ${frame} queued ${rafQueue.size} duplicate rAF callbacks`);
+    maxQueuedPerFrame = Math.max(maxQueuedPerFrame, rafQueue.size);
+    const batch = Array.from(rafQueue.entries());
+    rafQueue.clear();
+    for (const [, cb] of batch) cb();
+    assert.ok(rafQueue.size <= 1, `after stepping frame ${frame}, queued ${rafQueue.size} duplicate rAF callbacks`);
+  }
+  assert.equal(maxQueuedPerFrame, 1);
+  assert.ok(drawOps > 0, 'particles should actually render during drag');
+
+  // Release drag and drain all remaining particles cleanly
+  api.setDrag(null);
+  for (let frame = 0; frame < 80 && rafQueue.size > 0; frame++) {
+    assert.ok(rafQueue.size <= 1, `drain frame ${frame} queued ${rafQueue.size} callbacks`);
+    const batch = Array.from(rafQueue.entries());
+    rafQueue.clear();
+    for (const [, cb] of batch) cb();
+  }
+  assert.equal(rafQueue.size, 0, 'rAF loop must stop completely once drag ends and particles expire');
+  assert.equal(api.getPoolCount(), 0);
+  assert.equal(fakeCanvas.style.visibility, 'hidden');
 });
 
 test('client locale-bridge exposes optional __P3R_DSH_EFFORT__ over Cordis modelDirectories, projects optimistic pending effort without snapback, and rolls back on failure', async () => {

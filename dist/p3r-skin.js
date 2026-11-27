@@ -1385,6 +1385,7 @@
   var effortCanvasH = 0;
   var effortDpr = 1;
   var effortRaf = 0;
+  var effortStepping = false;
   var effortFloatEl = null;
   var effortFloatCloseTimer = 0;
   var effortEngineBound = false;
@@ -1510,6 +1511,12 @@
     return true;
   }
 
+  function scheduleEffortFrame() {
+    if (!effortRaf && !effortStepping) {
+      effortRaf = requestAnimationFrame(stepEffortParticles);
+    }
+  }
+
   function pushEffortParticle(kind, x, y, vx, vy, size, endSize, rot, vrot, maxLife, colIdx) {
     var idx = effortPoolCount < EFFORT_POOL_CAP ? effortPoolCount++ : ((Math.random() * EFFORT_POOL_CAP) | 0);
     epKind[idx] = kind;
@@ -1524,9 +1531,7 @@
     epLife[idx] = 0;
     epMaxLife[idx] = maxLife;
     epCol[idx] = colIdx;
-    if (!effortRaf) {
-      effortRaf = requestAnimationFrame(stepEffortParticles);
-    }
+    scheduleEffortFrame();
   }
 
   function emitEffortTrail(x, y, vxHint, tier, anchorRect) {
@@ -1576,10 +1581,21 @@
     if (!cfg.enabled || !cfg.btnFx || isReducedMotion()) return;
     if (anchorRect) {
       anchorEffortCanvas(anchorRect);
-    } else if (!effortCanvas || !effortCtx || x < effortCanvasOx + 24 || x > effortCanvasOx + effortCanvasW - 24 || y < effortCanvasOy + 24 || y > effortCanvasOy + effortCanvasH - 24) {
-      anchorEffortCanvas({ left: x - 120, top: y - 20, width: 240, height: 40 });
-    } else if (effortCanvas.style.visibility !== "visible") {
-      effortCanvas.style.visibility = "visible";
+    } else {
+      var vw = window.innerWidth || 1280;
+      var vh = window.innerHeight || 800;
+      var needsReanchor =
+        !effortCanvas ||
+        !effortCtx ||
+        (effortCanvasOx > 0 && x < effortCanvasOx + 24) ||
+        (effortCanvasOx + effortCanvasW < vw && x > effortCanvasOx + effortCanvasW - 24) ||
+        (effortCanvasOy > 0 && y < effortCanvasOy + 24) ||
+        (effortCanvasOy + effortCanvasH < vh && y > effortCanvasOy + effortCanvasH - 24);
+      if (needsReanchor) {
+        anchorEffortCanvas({ left: x - 120, top: y - 20, width: 240, height: 40 });
+      } else if (effortCanvas.style.visibility !== "visible") {
+        effortCanvas.style.visibility = "visible";
+      }
     }
     if (!effortCanvas || !effortCtx) return;
     var tIdx = Math.max(0, Math.min(3, tier || 0));
@@ -1624,147 +1640,157 @@
 
   function stepEffortParticles() {
     effortRaf = 0;
-    if (activeEffortDrag && typeof activeEffortDrag.flushPending === "function") {
-      activeEffortDrag.flushPending();
-    }
-    if (!effortCtx || !effortCanvas) {
-      effortPoolCount = 0;
-      return;
-    }
-    effortCtx.clearRect(0, 0, effortCanvasW, effortCanvasH);
-    if (!cfg.enabled || !cfg.btnFx || isReducedMotion()) {
-      effortPoolCount = 0;
-      effortCanvas.style.visibility = "hidden";
-      return;
-    }
-
-    var ox = effortCanvasOx;
-    var oy = effortCanvasOy;
-    var write = 0;
-    for (var i = 0; i < effortPoolCount; i++) {
-      var life = epLife[i] + 1;
-      var maxLife = epMaxLife[i];
-      if (life >= maxLife) continue;
-      var prog = life / maxLife;
-      var alpha = 1 - prog * prog;
-      var vx = epVx[i];
-      var vy = epVy[i];
-      var px = epX[i] + vx;
-      var py = epY[i] + vy;
-      vx *= 0.935;
-      vy = vy * 0.935 - 0.035;
-      var rot = epRot[i] + epVrot[i];
-      var kind = epKind[i];
-      var size = epSize[i];
-      var endSize = epEndSize[i];
-      var cIdx = epCol[i];
-
-      if (write !== i) {
-        epKind[write] = kind;
-        epX[write] = px;
-        epY[write] = py;
-        epVx[write] = vx;
-        epVy[write] = vy;
-        epSize[write] = size;
-        epEndSize[write] = endSize;
-        epRot[write] = rot;
-        epVrot[write] = epVrot[i];
-        epLife[write] = life;
-        epMaxLife[write] = maxLife;
-        epCol[write] = cIdx;
-      } else {
-        epX[write] = px;
-        epY[write] = py;
-        epVx[write] = vx;
-        epVy[write] = vy;
-        epRot[write] = rot;
-        epLife[write] = life;
+    // Block re-entrant rAF scheduling while stepping so flushPending/shimmer never spawn duplicate loops
+    effortStepping = true;
+    var keepRunning = false;
+    try {
+      if (activeEffortDrag && typeof activeEffortDrag.flushPending === "function") {
+        activeEffortDrag.flushPending();
       }
-      write++;
-
-      var lx = px - ox;
-      var ly = py - oy;
-      effortCtx.globalAlpha = alpha;
-      var col = EP_PALETTE[cIdx];
-      if (kind === EP_SPARK) {
-        effortCtx.strokeStyle = col;
-        effortCtx.lineWidth = Math.max(1, size * (1 - prog * 0.45));
-        effortCtx.beginPath();
-        effortCtx.moveTo(lx, ly);
-        effortCtx.lineTo(lx - vx * 3.1, ly - vy * 3.1);
-        effortCtx.stroke();
-      } else if (kind === EP_DIAMOND) {
-        var s = size * (1 - prog * 0.52);
-        var cs = Math.cos(rot);
-        var sn = Math.sin(rot);
-        var sw = s * 0.72;
-        effortCtx.fillStyle = col;
-        effortCtx.beginPath();
-        effortCtx.moveTo(lx + sn * s, ly - cs * s);
-        effortCtx.lineTo(lx + cs * sw, ly + sn * sw);
-        effortCtx.lineTo(lx - sn * s, ly + cs * s);
-        effortCtx.lineTo(lx - cs * sw, ly - sn * sw);
-        effortCtx.closePath();
-        effortCtx.fill();
-      } else if (kind === EP_MOTE) {
-        var mr = size * 0.58 * (1 - prog * 0.4);
-        effortCtx.fillStyle = col;
-        effortCtx.beginPath();
-        effortCtx.arc(lx, ly, mr, 0, 6.2832);
-        effortCtx.fill();
-      } else if (kind === EP_RING) {
-        var inv = 1 - prog;
-        var rSize = size + (endSize - size) * (1 - inv * inv * inv);
-        var half = rSize * 0.5;
-        effortCtx.strokeStyle = col;
-        effortCtx.lineWidth = Math.max(1, 2.4 * inv);
-        effortCtx.beginPath();
-        effortCtx.moveTo(lx + half * 0.22, ly - half);
-        effortCtx.lineTo(lx + half, ly);
-        effortCtx.lineTo(lx - half * 0.22, ly + half);
-        effortCtx.lineTo(lx - half, ly);
-        effortCtx.closePath();
-        effortCtx.stroke();
-      } else if (kind === EP_SLASH) {
-        var inv2 = 1 - prog;
-        var len = size + (endSize - size) * (1 - inv2 * inv2);
-        var th = 3.2 * (1 - prog * 0.5);
-        var sc = Math.cos(rot);
-        var ss = Math.sin(rot);
-        effortCtx.lineWidth = th;
-        effortCtx.strokeStyle = "#3cf2ff";
-        effortCtx.beginPath();
-        effortCtx.moveTo(lx - sc * len, ly - ss * len);
-        effortCtx.lineTo(lx - sc * len * 0.32, ly - ss * len * 0.32);
-        effortCtx.stroke();
-        effortCtx.strokeStyle = "#ffffff";
-        effortCtx.beginPath();
-        effortCtx.moveTo(lx - sc * len * 0.32, ly - ss * len * 0.32);
-        effortCtx.lineTo(lx + sc * len * 0.35, ly + ss * len * 0.35);
-        effortCtx.stroke();
-        effortCtx.strokeStyle = "#ff175a";
-        effortCtx.beginPath();
-        effortCtx.moveTo(lx + sc * len * 0.35, ly + ss * len * 0.35);
-        effortCtx.lineTo(lx + sc * len, ly + ss * len);
-        effortCtx.stroke();
+      if (!effortCtx || !effortCanvas) {
+        effortPoolCount = 0;
+        return;
       }
-    }
-    effortPoolCount = write;
-    effortCtx.globalAlpha = 1;
-
-    // Gentle paced shimmer while holding High / Theurgia during active drag
-    if (activeEffortDrag && activeEffortDrag.tier >= 2) {
-      effortIdleFrameTick++;
-      var cadence = activeEffortDrag.tier >= 3 ? 3 : 5;
-      if (effortIdleFrameTick % cadence === 0) {
-        emitEffortTrail(activeEffortDrag.thumbX, activeEffortDrag.thumbY, 0, activeEffortDrag.tier);
+      effortCtx.clearRect(0, 0, effortCanvasW, effortCanvasH);
+      if (!cfg.enabled || !cfg.btnFx || isReducedMotion()) {
+        effortPoolCount = 0;
+        effortCanvas.style.visibility = "hidden";
+        return;
       }
+
+      var ox = effortCanvasOx;
+      var oy = effortCanvasOy;
+      var write = 0;
+      for (var i = 0; i < effortPoolCount; i++) {
+        var life = epLife[i] + 1;
+        var maxLife = epMaxLife[i];
+        if (life >= maxLife) continue;
+        var prog = life / maxLife;
+        var alpha = 1 - prog * prog;
+        var vx = epVx[i];
+        var vy = epVy[i];
+        var px = epX[i] + vx;
+        var py = epY[i] + vy;
+        vx *= 0.935;
+        vy = vy * 0.935 - 0.035;
+        var rot = epRot[i] + epVrot[i];
+        var kind = epKind[i];
+        var size = epSize[i];
+        var endSize = epEndSize[i];
+        var cIdx = epCol[i];
+
+        if (write !== i) {
+          epKind[write] = kind;
+          epX[write] = px;
+          epY[write] = py;
+          epVx[write] = vx;
+          epVy[write] = vy;
+          epSize[write] = size;
+          epEndSize[write] = endSize;
+          epRot[write] = rot;
+          epVrot[write] = epVrot[i];
+          epLife[write] = life;
+          epMaxLife[write] = maxLife;
+          epCol[write] = cIdx;
+        } else {
+          epX[write] = px;
+          epY[write] = py;
+          epVx[write] = vx;
+          epVy[write] = vy;
+          epRot[write] = rot;
+          epLife[write] = life;
+        }
+        write++;
+
+        var lx = px - ox;
+        var ly = py - oy;
+        effortCtx.globalAlpha = alpha;
+        var col = EP_PALETTE[cIdx];
+        if (kind === EP_SPARK) {
+          effortCtx.strokeStyle = col;
+          effortCtx.lineWidth = Math.max(1, size * (1 - prog * 0.45));
+          effortCtx.beginPath();
+          effortCtx.moveTo(lx, ly);
+          effortCtx.lineTo(lx - vx * 3.1, ly - vy * 3.1);
+          effortCtx.stroke();
+        } else if (kind === EP_DIAMOND) {
+          var s = size * (1 - prog * 0.52);
+          var cs = Math.cos(rot);
+          var sn = Math.sin(rot);
+          var sw = s * 0.72;
+          effortCtx.fillStyle = col;
+          effortCtx.beginPath();
+          effortCtx.moveTo(lx + sn * s, ly - cs * s);
+          effortCtx.lineTo(lx + cs * sw, ly + sn * sw);
+          effortCtx.lineTo(lx - sn * s, ly + cs * s);
+          effortCtx.lineTo(lx - cs * sw, ly - sn * sw);
+          effortCtx.closePath();
+          effortCtx.fill();
+        } else if (kind === EP_MOTE) {
+          var mr = size * 0.58 * (1 - prog * 0.4);
+          effortCtx.fillStyle = col;
+          effortCtx.beginPath();
+          effortCtx.arc(lx, ly, mr, 0, 6.2832);
+          effortCtx.fill();
+        } else if (kind === EP_RING) {
+          var inv = 1 - prog;
+          var rSize = size + (endSize - size) * (1 - inv * inv * inv);
+          var half = rSize * 0.5;
+          effortCtx.strokeStyle = col;
+          effortCtx.lineWidth = Math.max(1, 2.4 * inv);
+          effortCtx.beginPath();
+          effortCtx.moveTo(lx + half * 0.22, ly - half);
+          effortCtx.lineTo(lx + half, ly);
+          effortCtx.lineTo(lx - half * 0.22, ly + half);
+          effortCtx.lineTo(lx - half, ly);
+          effortCtx.closePath();
+          effortCtx.stroke();
+        } else if (kind === EP_SLASH) {
+          var inv2 = 1 - prog;
+          var len = size + (endSize - size) * (1 - inv2 * inv2);
+          var th = 3.2 * (1 - prog * 0.5);
+          var sc = Math.cos(rot);
+          var ss = Math.sin(rot);
+          effortCtx.lineWidth = th;
+          effortCtx.strokeStyle = "#3cf2ff";
+          effortCtx.beginPath();
+          effortCtx.moveTo(lx - sc * len, ly - ss * len);
+          effortCtx.lineTo(lx - sc * len * 0.32, ly - ss * len * 0.32);
+          effortCtx.stroke();
+          effortCtx.strokeStyle = "#ffffff";
+          effortCtx.beginPath();
+          effortCtx.moveTo(lx - sc * len * 0.32, ly - ss * len * 0.32);
+          effortCtx.lineTo(lx + sc * len * 0.35, ly + ss * len * 0.35);
+          effortCtx.stroke();
+          effortCtx.strokeStyle = "#ff175a";
+          effortCtx.beginPath();
+          effortCtx.moveTo(lx + sc * len * 0.35, ly + ss * len * 0.35);
+          effortCtx.lineTo(lx + sc * len, ly + ss * len);
+          effortCtx.stroke();
+        }
+      }
+      effortPoolCount = write;
+      effortCtx.globalAlpha = 1;
+
+      // Gentle paced shimmer while holding High / Theurgia during active drag
+      if (activeEffortDrag && activeEffortDrag.tier >= 2) {
+        effortIdleFrameTick++;
+        var cadence = activeEffortDrag.tier >= 3 ? 3 : 5;
+        if (effortIdleFrameTick % cadence === 0) {
+          emitEffortTrail(activeEffortDrag.thumbX, activeEffortDrag.thumbY, 0, activeEffortDrag.tier);
+        }
+      }
+
+      keepRunning = effortPoolCount > 0 || Boolean(activeEffortDrag && activeEffortDrag.tier >= 2);
+      if (!keepRunning) {
+        effortCanvas.style.visibility = "hidden";
+      }
+    } finally {
+      effortStepping = false;
     }
 
-    if (effortPoolCount > 0 || activeEffortDrag) {
-      effortRaf = requestAnimationFrame(stepEffortParticles);
-    } else {
-      effortCanvas.style.visibility = "hidden";
+    if (keepRunning) {
+      scheduleEffortFrame();
     }
   }
 
@@ -2207,7 +2233,7 @@
               ctrl.el.classList.add("p3r-er-dragging");
             }
             pendingClientX = mv.clientX;
-            if (!effortRaf) effortRaf = requestAnimationFrame(stepEffortParticles);
+            scheduleEffortFrame();
           }
 
           function onEnd() {
@@ -2260,6 +2286,7 @@
       cancelAnimationFrame(effortRaf);
       effortRaf = 0;
     }
+    effortIdleFrameTick = 0;
     effortPoolCount = 0;
     if (effortCtx && effortCanvas) {
       effortCtx.clearRect(0, 0, effortCanvasW, effortCanvasH);
@@ -2424,8 +2451,8 @@
             },
           };
           emitEffortTrail(initPt.x, initPt.y, curX - downX, initTier);
-          if (!effortRaf && !isReducedMotion()) {
-            effortRaf = requestAnimationFrame(stepEffortParticles);
+          if (!isReducedMotion()) {
+            scheduleEffortFrame();
           }
           try {
             var sel = window.getSelection && window.getSelection();
@@ -2446,7 +2473,7 @@
           }
           mv.preventDefault();
           pendingMoveX = mv.clientX;
-          if (!effortRaf) effortRaf = requestAnimationFrame(stepEffortParticles);
+          scheduleEffortFrame();
         }
 
         function cleanup(commit) {
