@@ -232,7 +232,7 @@ async function servePng(req, res, filePath) {
       'Content-Type': 'image/png',
       'Cache-Control': 'public, max-age=3600',
       ETag: etag,
-      'Content-Length': String(info.size),
+      'Content-Length': String(buf ? buf.length : info.size),
     });
     res.end(buf || undefined);
   } catch {
@@ -291,7 +291,7 @@ async function readDshwUsageFallback() {
           totalBalance: parsed.lastBalance,
           normalBalance: parsed.lastBalance,
           bonusBalance: 0,
-          todayUsage: Number.isFinite(Number(parsed.todayUsage)) ? Number(parsed.todayUsage) : null,
+          todayUsage: typeof parsed.todayUsage === 'number' && Number.isFinite(parsed.todayUsage) ? parsed.todayUsage : null,
           updatedAt: Date.now(),
         };
       }

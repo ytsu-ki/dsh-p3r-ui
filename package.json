@@ -1,8 +1,8 @@
 {
   "name": "dsh-p3r-ui",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "type": "module",
-  "description": "Persona 3 Reload (Makoto Yuki) dynamic underwater video backdrop, adaptive frosted-glass theme, and draggable HUD widgets for DeepSeek Harness",
+  "description": "Persona 3 Reload (Makoto Yuki) visual UI theme for DeepSeek Harness — 60fps underwater backdrop, zero-clash Reload glass UI, Codex-style thinking-effort particle rail, live Moon Phase HUD, and draggable wallet widget",
   "keywords": [
     "dsh",
     "dsh-plugin",
